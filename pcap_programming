@@ -1,0 +1,90 @@
+#include <stdio.h>
+#include <pcap.h>
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+
+// 패킷 처리 함수
+void packet_handler(u_char *user, const struct pcap_pkthdr *pkthdr, const u_char *packet) {
+    struct ether_header *eth_header;
+    struct ip *ip_header;
+    struct tcphdr *tcp_header;
+
+    // 이더넷 헤더 파싱
+    eth_header = (struct ether_header *)packet;
+
+    // IP 패킷인지 확인
+    if (ntohs(eth_header->ether_type) == ETHERTYPE_IP) {
+        // IP 헤더 파싱
+        ip_header = (struct ip *)(packet + sizeof(struct ether_header));
+
+        // TCP 프로토콜인지 확인
+        if (ip_header->ip_p == IPPROTO_TCP) {
+            // TCP 헤더 파싱
+            tcp_header = (struct tcphdr *)(packet + sizeof(struct ether_header) + ip_header->ip_hl * 4);
+
+            // 송신 MAC 주소 출력
+            printf("Source MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                   eth_header->ether_shost[0],
+                   eth_header->ether_shost[1],
+                   eth_header->ether_shost[2],
+                   eth_header->ether_shost[3],
+                   eth_header->ether_shost[4],
+                   eth_header->ether_shost[5]);
+
+            // 수신 MAC 주소 출력
+            printf("Destination MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                   eth_header->ether_dhost[0],
+                   eth_header->ether_dhost[1],
+                   eth_header->ether_dhost[2],
+                   eth_header->ether_dhost[3],
+                   eth_header->ether_dhost[4],
+                   eth_header->ether_dhost[5]);
+
+            // 송신 IP 주소 출력
+            printf("Source IP: %s\n", inet_ntoa(ip_header->ip_src));
+            // 수신 IP 주소 출력
+            printf("Destination IP: %s\n", inet_ntoa(ip_header->ip_dst));
+            // 송신 TCP 포트 출력
+            printf("Source Port: %u\n", ntohs(tcp_header->th_sport));
+            // 수신 TCP 포트 출력
+            printf("Destination Port: %u\n", ntohs(tcp_header->th_dport));
+        }
+    }
+}
+
+int main() {
+    pcap_t *handle;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    struct bpf_program fp;
+    char filter_exp[] = "tcp"; // TCP 프로토콜만 필터링
+    bpf_u_int32 net;
+
+    // 패킷 캡처를 위한 네트워크 장치 열기
+    handle = pcap_open_live("ens33", BUFSIZ, 1, 1000, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Couldn't open device %s: %s\n", "ens33", errbuf);
+        return 1;
+    }
+
+    // 필터 표현식 컴파일
+    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return 1;
+    }
+
+    // 컴파일된 필터 적용
+    if (pcap_setfilter(handle, &fp) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        return 1;
+    }
+
+    // 패킷 캡처 시작
+    pcap_loop(handle, -1, packet_handler, NULL);
+
+    // 핸들 닫기
+    pcap_close(handle);
+
+    return 0;
+}
